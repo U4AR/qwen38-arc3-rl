@@ -32,7 +32,7 @@ def all_games() -> list[str]:
 class RolloutConfig:
     model: str  # served model name or LoRA adapter name
     servers: list[str]  # base urls, e.g. http://127.0.0.1:1234/v1
-    minutes_per_game: float = 60.0  # safety cap only; the token budget is the real limit
+    minutes_per_game: float = 120.0  # safety cap only; the token budget is the real limit
     max_actions: int | None = 400
     max_generated_tokens: int = 120_000  # per episode, load-independent
     concurrent_per_server: int = 32
