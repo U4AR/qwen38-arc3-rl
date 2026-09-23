@@ -1,0 +1,173 @@
+{
+ "snapshot_utc": "2026-09-23T09:44:55.061776",
+ "episodes": [
+  {
+   "episode": "server0/ar25-0c556536_p0",
+   "levels_cleared_so_far": 1,
+   "generated_tokens_so_far": 25813,
+   "requests": 23,
+   "video_replays": 4
+  },
+  {
+   "episode": "server0/ar25-0c556536_p1",
+   "levels_cleared_so_far": 2,
+   "generated_tokens_so_far": 27958,
+   "requests": 19,
+   "video_replays": 0
+  },
+  {
+   "episode": "server0/ar25-0c556536_p2",
+   "levels_cleared_so_far": 1,
+   "generated_tokens_so_far": 28386,
+   "requests": 22,
+   "video_replays": 0
+  },
+  {
+   "episode": "server0/cd82-fb555c5d_p0",
+   "levels_cleared_so_far": 0,
+   "generated_tokens_so_far": 25871,
+   "requests": 22,
+   "video_replays": 0
+  },
+  {
+   "episode": "server0/cd82-fb555c5d_p1",
+   "levels_cleared_so_far": 0,
+   "generated_tokens_so_far": 26542,
+   "requests": 22,
+   "video_replays": 14
+  },
+  {
+   "episode": "server0/cd82-fb555c5d_p2",
+   "levels_cleared_so_far": 0,
+   "generated_tokens_so_far": 27547,
+   "requests": 18,
+   "video_replays": 6
+  },
+  {
+   "episode": "server0/ft09-0d8bbf25_p0",
+   "levels_cleared_so_far": 0,
+   "generated_tokens_so_far": 29940,
+   "requests": 12,
+   "video_replays": 0
+  },
+  {
+   "episode": "server0/ft09-0d8bbf25_p1",
+   "levels_cleared_so_far": 0,
+   "generated_tokens_so_far": 27762,
+   "requests": 22,
+   "video_replays": 15
+  },
+  {
+   "episode": "server0/lp85-305b61c3_p0",
+   "levels_cleared_so_far": 1,
+   "generated_tokens_so_far": 26699,
+   "requests": 20,
+   "video_replays": 0
+  },
+  {
+   "episode": "server0/lp85-305b61c3_p1",
+   "levels_cleared_so_far": 1,
+   "generated_tokens_so_far": 24611,
+   "requests": 17,
+   "video_replays": 0
+  },
+  {
+   "episode": "server0/ls20-9607627b_p0",
+   "levels_cleared_so_far": 1,
+   "generated_tokens_so_far": 27594,
+   "requests": 15,
+   "video_replays": 7
+  },
+  {
+   "episode": "server0/ls20-9607627b_p1",
+   "levels_cleared_so_far": 0,
+   "generated_tokens_so_far": 26344,
+   "requests": 25,
+   "video_replays": 1
+  },
+  {
+   "episode": "server1/ar25-0c556536_p0",
+   "levels_cleared_so_far": 1,
+   "generated_tokens_so_far": 18436,
+   "requests": 12,
+   "video_replays": 0
+  },
+  {
+   "episode": "server1/ar25-0c556536_p1",
+   "levels_cleared_so_far": 1,
+   "generated_tokens_so_far": 17900,
+   "requests": 11,
+   "video_replays": 0
+  },
+  {
+   "episode": "server1/ar25-0c556536_p2",
+   "levels_cleared_so_far": 1,
+   "generated_tokens_so_far": 16519,
+   "requests": 15,
+   "video_replays": 0
+  },
+  {
+   "episode": "server1/cd82-fb555c5d_p0",
+   "levels_cleared_so_far": 0,
+   "generated_tokens_so_far": 36822,
+   "requests": 30,
+   "video_replays": 0
+  },
+  {
+   "episode": "server1/cd82-fb555c5d_p1",
+   "levels_cleared_so_far": 0,
+   "generated_tokens_so_far": 33948,
+   "requests": 23,
+   "video_replays": 5
+  },
+  {
+   "episode": "server1/cd82-fb555c5d_p2",
+   "levels_cleared_so_far": 0,
+   "generated_tokens_so_far": 34695,
+   "requests": 28,
+   "video_replays": 24
+  },
+  {
+   "episode": "server1/ft09-0d8bbf25_p0",
+   "levels_cleared_so_far": 2,
+   "generated_tokens_so_far": 36136,
+   "requests": 16,
+   "video_replays": 0
+  },
+  {
+   "episode": "server1/ft09-0d8bbf25_p1",
+   "levels_cleared_so_far": 2,
+   "generated_tokens_so_far": 32044,
+   "requests": 15,
+   "video_replays": 0
+  },
+  {
+   "episode": "server1/lp85-305b61c3_p0",
+   "levels_cleared_so_far": 1,
+   "generated_tokens_so_far": 35345,
+   "requests": 18,
+   "video_replays": 0
+  },
+  {
+   "episode": "server1/lp85-305b61c3_p1",
+   "levels_cleared_so_far": 1,
+   "generated_tokens_so_far": 29978,
+   "requests": 22,
+   "video_replays": 0
+  },
+  {
+   "episode": "server1/ls20-9607627b_p0",
+   "levels_cleared_so_far": 1,
+   "generated_tokens_so_far": 17962,
+   "requests": 16,
+   "video_replays": 0
+  },
+  {
+   "episode": "server1/ls20-9607627b_p1",
+   "levels_cleared_so_far": 1,
+   "generated_tokens_so_far": 15303,
+   "requests": 10,
+   "video_replays": 0
+  }
+ ]
+}

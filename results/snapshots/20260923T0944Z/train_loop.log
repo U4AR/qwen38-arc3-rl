@@ -1,0 +1,5 @@
+[overrides] lr: 2e-05 -> 1e-05
+[watchdog] restarting server 1 (http://127.0.0.1:1235)
+[watchdog] server 1 back: True
+[watchdog] restarting server 0 (http://127.0.0.1:1234)
+[watchdog] server 0 back: True
