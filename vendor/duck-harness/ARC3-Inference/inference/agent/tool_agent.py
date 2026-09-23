@@ -30,6 +30,15 @@ from inference.agent.vision_context import (
 )
 
 from inference.agent.python_tool_sandbox import run_sandboxed_python
+from inference.agent.rl_log import RLTrajectoryLogger, rl_trajectory_log_enabled
+from inference.agent.video_tool import (
+    VIDEO_TOOL_NAME,
+    VIDEO_TOOL_PROMPT_ADDENDUM,
+    VIDEO_TOOL_SPEC,
+    RecordedAction,
+    build_video_response,
+    video_tool_enabled,
+)
 from inference.agent.runtime_state import Frame, HistoryEntry, RUNTIME_STATE_FILENAME, load_runtime_state
 from inference.utils.openai_compat import build_chat_payload, build_headers
 
@@ -356,6 +365,8 @@ def _build_system_prompt(*, tool_output_tokens: int) -> str:
     prompt += VISUAL_GAME_ADDENDUM
     prompt += PYTHON_ADDENDUM
     prompt += COMPACT_TOOL_SESSION_ADDENDUM.format(tool_output_tokens=tool_output_tokens)
+    if video_tool_enabled():
+        prompt += VIDEO_TOOL_PROMPT_ADDENDUM
     return prompt
 
 
@@ -378,6 +389,8 @@ class AnalyzerTurnResult:
 class _ToolDispatchResult:
     content: str
     step_executed: bool = False
+    # Image parts to show the model in a user message right after the tool results.
+    followup_images: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -459,11 +472,17 @@ def _format_action_span(start_action_num: int | None, end_action_num: int | None
     return f"{start_action_num}-{end_action_num}"
 
 
+_DATA_URL_RE = re.compile(r"data:image/[a-zA-Z]+;base64,[A-Za-z0-9+/=]+")
+# Rough vision-token cost of one attached image; base64 length says nothing about it.
+_IMAGE_TOKEN_ESTIMATE = 1500
+
+
 def _estimate_tokens(value: Any) -> int:
     try:
         rendered = json.dumps(value, ensure_ascii=True, sort_keys=True, default=str)
     except TypeError:
         rendered = str(value)
+    rendered = _DATA_URL_RE.sub("x" * (3 * _IMAGE_TOKEN_ESTIMATE), rendered)
     return max(1, (len(rendered) + 2) // 3)
 
 
@@ -877,11 +896,19 @@ def _normalize_message_content(content: Any) -> str:
     return ""
 
 
+def _verbatim_model_text(content: Any) -> str:
+    """Model output with only think tags removed, so replayed history re-tokenizes
+    to exactly what was sampled (keeps vLLM prefix caching and RL packing exact)."""
+    if not isinstance(content, str):
+        return _normalize_message_content(content)
+    return _THINK_TAG_RE.sub("", content).strip()
+
+
 def _extract_reasoning_text(message: dict[str, Any]) -> str:
     reasoning = message.get("reasoning")
     if reasoning in (None, ""):
         reasoning = message.get("reasoning_content", "")
-    return _normalize_message_content(reasoning)
+    return _verbatim_model_text(reasoning)
 
 
 def _is_context_length_error(exc: BaseException) -> bool:
@@ -899,6 +926,9 @@ class _ChatCompletionResult:
     message: dict[str, Any]
     finish_reason: str = ""
     usage: dict[str, Any] | None = None
+    prompt_token_ids: list[int] | None = None
+    token_ids: list[int] | None = None
+    logprobs: list[float] | None = None
 
 
 class ToolAgent:
@@ -955,6 +985,9 @@ class ToolAgent:
         self._last_step_summary: dict[str, Any] | None = None
         self._last_action_result: dict[str, Any] | None = None
         self._summarized_knowledge = _empty_world_model()
+        # Set by the solver session: returns every frame rendered by recent actions.
+        self.recorded_actions_provider: Callable[[], list[RecordedAction]] | None = None
+        self._rl_logger: RLTrajectoryLogger | None = None
 
     def _headers(self) -> dict[str, str]:
         api_key = (
@@ -982,6 +1015,7 @@ class ToolAgent:
             self._last_step_summary = None
             self._last_action_result = None
             self._summarized_knowledge = _empty_world_model()
+            self._rl_logger = RLTrajectoryLogger.for_state_path(state_path) if rl_trajectory_log_enabled() else None
 
     @property
     def total_tokens(self) -> int:
@@ -1276,7 +1310,8 @@ class ToolAgent:
                         "required": ["code"],
                     },
                 },
-            }
+            },
+            *([VIDEO_TOOL_SPEC] if video_tool_enabled() else []),
         ]
 
     def _chat_completion(
@@ -1299,6 +1334,10 @@ class ToolAgent:
             tool_choice=_request_tool_choice(tools),
             seed=_LOCAL_ANALYZER_SEED,
         )
+        if self._rl_logger is not None:
+            # Exact token ids + sampling logprobs for policy-gradient training.
+            payload["return_token_ids"] = True
+            payload["logprobs"] = True
         def post_chat(request_payload: dict[str, Any]) -> requests.Response:
             return requests.post(
                 f"{self._model.base_url.rstrip('/')}/chat/completions",
@@ -1327,10 +1366,14 @@ class ToolAgent:
         if not choices:
             raise requests.RequestException("server returned no choices")
         choice = choices[0]
+        logprob_entries = ((choice.get("logprobs") or {}).get("content")) or []
         return _ChatCompletionResult(
             message=choice.get("message", {}),
             finish_reason=str(choice.get("finish_reason", "") or ""),
             usage=payload.get("usage"),
+            prompt_token_ids=payload.get("prompt_token_ids"),
+            token_ids=choice.get("token_ids"),
+            logprobs=[float(entry.get("logprob", 0.0)) for entry in logprob_entries] or None,
         )
 
     def _trim_tool_text(self, text: str) -> tuple[str, bool]:
@@ -1591,6 +1634,10 @@ class ToolAgent:
         self._ensure_session(state_path)
         if name == "python":
             return self._run_python_tool(state_path, arguments)
+        if name == VIDEO_TOOL_NAME and video_tool_enabled():
+            recorded = self.recorded_actions_provider() if self.recorded_actions_provider is not None else []
+            text, image_part = build_video_response(recorded, arguments)
+            return _ToolDispatchResult(text, followup_images=(image_part,) if image_part else ())
         return _ToolDispatchResult(json.dumps({"error": f"Unknown tool: {name}"}, indent=2))
 
     def _estimate_request_input_tokens(
@@ -1821,6 +1868,14 @@ class ToolAgent:
                         )
                     result = self._chat_completion(messages, **request_kwargs)
                     self._accumulate_usage_tokens(result.usage)
+                    if self._rl_logger is not None:
+                        self._rl_logger.record(
+                            state_path=state_path,
+                            messages=latest_request_messages,
+                            result=result,
+                            analysis_step=analysis_step,
+                            action_num=display_action_num,
+                        )
                     if self._save_request_logs:
                         _append_request_snapshot(
                             _resolve_request_log_path(state_path),
@@ -1852,7 +1907,7 @@ class ToolAgent:
                     messages = trimmed_messages
                     continue
                 raw_reasoning = _extract_reasoning_text(result.message)
-                raw_content = _normalize_message_content(result.message.get("content", ""))
+                raw_content = _verbatim_model_text(result.message.get("content", ""))
                 tool_calls = json.loads(json.dumps(result.message.get("tool_calls") or []))
                 tool_call_markup_in_text = _contains_tool_call_markup(raw_reasoning, raw_content)
                 recovered_tool_calls_from_markup = False
@@ -1933,6 +1988,7 @@ class ToolAgent:
                 assistant_message["tool_calls"] = tool_calls
                 messages.append(assistant_message)
 
+                pending_images: list[dict[str, Any]] = []
                 for tool_index, tool_call in enumerate(tool_calls):
                     function = tool_call.get("function", {}) if isinstance(tool_call, dict) else {}
                     tool_name = str(function.get("name", "")).strip()
@@ -1952,6 +2008,7 @@ class ToolAgent:
                         rendered_tool_call or (json.dumps(arguments, indent=2) if arguments else "{}"),
                     )
                     dispatch = self._dispatch_tool(state_path, tool_name, arguments)
+                    pending_images.extend(dispatch.followup_images)
                     if dispatch.step_executed:
                         step_executed = True
                     append_transcript(f"TOOL RESULT: {tool_name}", _render_tool_result_display(dispatch.content))
@@ -1971,6 +2028,14 @@ class ToolAgent:
                         if tool_index < len(tool_calls) - 1:
                             preserve_history = False
                         break
+                if pending_images:
+                    append_transcript("VIDEO", f"{len(pending_images)} filmstrip image(s) shown to the model")
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": [{"type": "text", "text": "Requested video replay:"}, *pending_images],
+                        }
+                    )
                 if yielded_control_reason is not None:
                     break
                 if step_executed:
@@ -2036,7 +2101,7 @@ class ToolAgent:
             f"request_safety_margin_tokens: {self._request_safety_margin_tokens}\n"
             f"tool_output_tokens: {self._tool_output_tokens}\n"
             f"yield_seconds: {self._yield_seconds if self._yield_seconds is not None else 'disabled'}\n"
-            f"available_tools: python\n"
+            f"available_tools: python{', ' + VIDEO_TOOL_NAME if video_tool_enabled() else ''}\n"
             f"python_timeout_seconds: {self._python_timeout}\n"
             f"history_messages: {len(self._history_messages)}\n"
             f"step_executed: {step_executed}\n"

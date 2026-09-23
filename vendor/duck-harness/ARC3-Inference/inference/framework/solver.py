@@ -35,6 +35,7 @@ from inference.agent.runtime_state import (
     write_runtime_state,
 )
 from inference.agent.tool_agent import ToolAgent
+from inference.agent.video_tool import RecordedAction
 from inference.framework.kaggle import (
     DEFAULT_QWEN_MODEL_DATASET_SOURCE,
     DEFAULT_SERVED_MODEL_NAME,
@@ -56,6 +57,9 @@ from inference.utils.viewer_artifacts import (
 AnalyzerFactory = Callable[[taaf.game.Game, int], Any]
 
 ANALYZER_RETRY_BACKOFF_SECONDS = 1.0
+RECORDED_ACTIONS_KEPT = 8
+# Load-independent episode budget (0 = off): stop once the model has generated this many tokens.
+EPISODE_MAX_GENERATED_TOKENS = int(os.environ.get("EPISODE_MAX_GENERATED_TOKENS", "0") or 0)
 DEFAULT_CANCEL_DRAIN_TIMEOUT_SECONDS = 120.0
 _LOCAL_SERVER_PROCESS_ENV_KEYS = (
     "LOCAL_ANALYZER_API_KEY",
@@ -182,6 +186,8 @@ class _HarnessGameSession:
     analysis_step: int = 0
     last_engine_action: str | None = None
     token_baseline: int = 0
+    # Every frame (animation + final) of recent actions, for the optional video tool.
+    recorded_actions: list[RecordedAction] = field(default_factory=list)
     _viewer_events_flushed: int = field(default=0, init=False, repr=False)
 
     def current_frame(self) -> Frame:
@@ -254,6 +260,11 @@ class _HarnessGameSession:
         if self.runtime_limit_reached():
             return True
         if (
+            EPISODE_MAX_GENERATED_TOKENS > 0
+            and _analyzer_reported_tokens(self.analyzer) >= EPISODE_MAX_GENERATED_TOKENS
+        ):
+            return True
+        if (
             self.solver.max_actions_per_game is not None
             and self.action_count >= self.solver.max_actions_per_game
         ):
@@ -267,6 +278,8 @@ class _HarnessGameSession:
         self.transcript_path.parent.mkdir(parents=True, exist_ok=True)
         self.transcript_path.touch(exist_ok=True)
         self.token_baseline = _analyzer_reported_tokens(self.analyzer)
+        if hasattr(self.analyzer, "recorded_actions_provider"):
+            self.analyzer.recorded_actions_provider = lambda: list(self.recorded_actions)
         self.seed_initial_history()
         self.write_runtime_state()
         self._append_initial_viewer_event()
@@ -693,6 +706,18 @@ class _HarnessGameSession:
         self.history_entries.append(
             HistoryEntry(action=action_display, frame=current_frame)
         )
+        self.recorded_actions.append(
+            RecordedAction(
+                action=action_display,
+                step=current_frame.step,
+                level=current_frame.level,
+                frames=tuple(
+                    tuple(tuple(int(cell) for cell in row) for row in frame.data.tolist())
+                    for frame in new_state.all_frames
+                ),
+            )
+        )
+        del self.recorded_actions[:-RECORDED_ACTIONS_KEPT]
         self.write_runtime_state()
 
         completed = int(new_state.levels_completed)
