@@ -1,0 +1,150 @@
+{
+ "tag": "baseline",
+ "model": "Qwen3.8-27B",
+ "passes": "partial (stopped early)",
+ "overall": {
+  "episodes": 24,
+  "levels_per_episode": 0.4166666666666667,
+  "frac_episodes_ge1_level": 0.375,
+  "mean_score": 1.6175053799544519,
+  "reward_per_episode": 0.48778750000000004,
+  "gen_tokens_per_episode": 63161.5,
+  "gen_tokens_per_solved_level": 27852.6,
+  "actions_per_episode": 20.416666666666668,
+  "video_calls_per_episode": 1.25
+ },
+ "per_game": {
+  "ar25-0c556536": {
+   "episodes": 2,
+   "levels_per_episode": 1.0,
+   "frac_episodes_ge1_level": 1.0,
+   "mean_score": 2.032719682108546,
+   "reward_per_episode": 1.21575625,
+   "gen_tokens_per_episode": 62427.5,
+   "gen_tokens_per_solved_level": 22739.5,
+   "actions_per_episode": 39,
+   "video_calls_per_episode": 0
+  },
+  "bp35-0a0ad940": {
+   "episodes": 2,
+   "levels_per_episode": 0.0,
+   "frac_episodes_ge1_level": 0.0,
+   "mean_score": 0.0,
+   "reward_per_episode": 0.0,
+   "gen_tokens_per_episode": 62556.5,
+   "gen_tokens_per_solved_level": null,
+   "actions_per_episode": 8.5,
+   "video_calls_per_episode": 3
+  },
+  "cd82-fb555c5d": {
+   "episodes": 2,
+   "levels_per_episode": 0.5,
+   "frac_episodes_ge1_level": 0.5,
+   "mean_score": 2.380952380952381,
+   "reward_per_episode": 0.5689625,
+   "gen_tokens_per_episode": 64357,
+   "gen_tokens_per_solved_level": 28966.0,
+   "actions_per_episode": 34.5,
+   "video_calls_per_episode": 0
+  },
+  "cn04-2fe56bfb": {
+   "episodes": 2,
+   "levels_per_episode": 0.5,
+   "frac_episodes_ge1_level": 0.5,
+   "mean_score": 2.380952380952381,
+   "reward_per_episode": 0.60836875,
+   "gen_tokens_per_episode": 62463,
+   "gen_tokens_per_solved_level": 22661.0,
+   "actions_per_episode": 13.5,
+   "video_calls_per_episode": 0
+  },
+  "dc22-fdcac232": {
+   "episodes": 2,
+   "levels_per_episode": 0.0,
+   "frac_episodes_ge1_level": 0.0,
+   "mean_score": 0.0,
+   "reward_per_episode": 0.0,
+   "gen_tokens_per_episode": 62870,
+   "gen_tokens_per_solved_level": null,
+   "actions_per_episode": 33.5,
+   "video_calls_per_episode": 6.5
+  },
+  "ft09-0d8bbf25": {
+   "episodes": 2,
+   "levels_per_episode": 1.0,
+   "frac_episodes_ge1_level": 0.5,
+   "mean_score": 7.142857142857142,
+   "reward_per_episode": 1.2341125000000002,
+   "gen_tokens_per_episode": 67647,
+   "gen_tokens_per_solved_level": 21271.0,
+   "actions_per_episode": 23.5,
+   "video_calls_per_episode": 2.5
+  },
+  "g50t-5849a774": {
+   "episodes": 2,
+   "levels_per_episode": 0.0,
+   "frac_episodes_ge1_level": 0.0,
+   "mean_score": 0.0,
+   "reward_per_episode": 0.0,
+   "gen_tokens_per_episode": 66314.5,
+   "gen_tokens_per_solved_level": null,
+   "actions_per_episode": 10,
+   "video_calls_per_episode": 0
+  },
+  "ka59-38d34dbb": {
+   "episodes": 2,
+   "levels_per_episode": 0.0,
+   "frac_episodes_ge1_level": 0.0,
+   "mean_score": 0.0,
+   "reward_per_episode": 0.0,
+   "gen_tokens_per_episode": 63267.5,
+   "gen_tokens_per_solved_level": null,
+   "actions_per_episode": 17.5,
+   "video_calls_per_episode": 0
+  },
+  "lf52-271a04aa": {
+   "episodes": 2,
+   "levels_per_episode": 0.5,
+   "frac_episodes_ge1_level": 0.5,
+   "mean_score": 0.9090909090909091,
+   "reward_per_episode": 0.5,
+   "gen_tokens_per_episode": 60562,
+   "gen_tokens_per_solved_level": 52481.0,
+   "actions_per_episode": 13.5,
+   "video_calls_per_episode": 1.5
+  },
+  "lp85-305b61c3": {
+   "episodes": 2,
+   "levels_per_episode": 1.0,
+   "frac_episodes_ge1_level": 1.0,
+   "mean_score": 2.7777777777777777,
+   "reward_per_episode": 1.10325625,
+   "gen_tokens_per_episode": 63510,
+   "gen_tokens_per_solved_level": 33038.0,
+   "actions_per_episode": 11,
+   "video_calls_per_episode": 1.5
+  },
+  "ls20-9607627b": {
+   "episodes": 2,
+   "levels_per_episode": 0.5,
+   "frac_episodes_ge1_level": 0.5,
+   "mean_score": 1.7857142857142856,
+   "reward_per_episode": 0.62299375,
+   "gen_tokens_per_episode": 60787,
+   "gen_tokens_per_solved_level": 20321.0,
+   "actions_per_episode": 28,
+   "video_calls_per_episode": 0
+  },
+  "m0r0-492f87ba": {
+   "episodes": 2,
+   "levels_per_episode": 0.0,
+   "frac_episodes_ge1_level": 0.0,
+   "mean_score": 0.0,
+   "reward_per_episode": 0.0,
+   "gen_tokens_per_episode": 61176,
+   "gen_tokens_per_solved_level": null,
+   "actions_per_episode": 12.5,
+   "video_calls_per_episode": 0
+  }
+ }
+}

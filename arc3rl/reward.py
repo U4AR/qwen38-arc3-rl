@@ -79,6 +79,8 @@ def load_episodes(experiment_dirs: list[Path], *, with_records: bool = False) ->
         data = json.loads(bench.read_text())
         artifacts = bench.parent / "artifacts"
         for run in data.get("game_runs", []):
+            if run.get("final_score") is None or run.get("state") == "playing":
+                continue  # unfinished (e.g. run was stopped); no outcome to score
             m = _PASS_RE.search(str(run.get("solver_analysis_html") or ""))
             if m is None:
                 continue
