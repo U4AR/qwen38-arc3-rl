@@ -6,6 +6,10 @@ set -euo pipefail
 source "$(dirname "$0")/env.sh"
 GPU=$1; PORT=$2
 export CUDA_VISIBLE_DEVICES=$GPU
+# Per-server compile caches: two servers compiling into one cache dir corrupted it.
+export VLLM_CACHE_ROOT=/cache/nvme0/vllm-cache/gpu$GPU
+export TORCHINDUCTOR_CACHE_DIR=/cache/nvme0/vllm-cache/gpu$GPU/inductor
+export TRITON_CACHE_DIR=/cache/nvme0/vllm-cache/gpu$GPU/triton
 export VLLM_ALLOW_RUNTIME_LORA_UPDATING=1   # /v1/load_lora_adapter
 export VLLM_SERVER_DEV_MODE=1               # /sleep, /wake_up
 SPEC=${SPEC_TOKENS:-2}
@@ -19,7 +23,7 @@ exec "$SERVE_VENV/bin/vllm" serve "$MODEL_PATH" \
   --dtype bfloat16 \
   --max-model-len "${MAX_MODEL_LEN:-32768}" \
   --gpu-memory-utilization "${GPU_MEM_UTIL:-0.90}" \
-  --max-num-seqs "${MAX_NUM_SEQS:-64}" \
+  --max-num-seqs "${MAX_NUM_SEQS:-32}" \
   --max-num-batched-tokens "${MAX_BATCHED_TOKENS:-8192}" \
   --enable-prefix-caching \
   --enable-auto-tool-choice --tool-call-parser qwen3_coder \

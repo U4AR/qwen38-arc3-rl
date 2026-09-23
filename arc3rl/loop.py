@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -46,6 +47,60 @@ class LoopConfig:
 
 
 # ---------------------------------------------------------------- servers
+# Adapters every server must have; re-loaded if the watchdog restarts a server.
+LOADED: dict[str, Path] = {}
+SLEEPING = threading.Event()
+
+
+def _healthy(url: str) -> bool:
+    try:
+        return requests.get(url + "/health", timeout=10).ok
+    except requests.RequestException:
+        return False
+
+
+def _restart_server(index: int) -> None:
+    url, port = SERVERS[index], SERVERS[index].rsplit(":", 1)[1]
+    print(f"[watchdog] restarting server {index} ({url})", flush=True)
+    subprocess.run(["pkill", "-f", f"bin/vllm serve .*--port {port}"], check=False)
+    time.sleep(20)
+    gpu_pids = subprocess.run(
+        ["nvidia-smi", "--query-compute-apps=pid", "--format=csv,noheader", f"--id={index}"],
+        capture_output=True, text=True,
+    ).stdout.split()
+    for pid in gpu_pids:
+        subprocess.run(["kill", "-9", pid], check=False)
+    log = open(f"/cache/nvme0/Qwen/logs/vllm-gpu{index}.log", "a")
+    subprocess.Popen([str(REPO / "scripts/serve.sh"), str(index), port], stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    deadline = time.time() + 1200
+    while time.time() < deadline and not _healthy(url):
+        time.sleep(10)
+    for name, path in LOADED.items():
+        _post(url, "/v1/load_lora_adapter", json={"lora_name": name, "lora_path": str(path)})
+    print(f"[watchdog] server {index} back: {_healthy(url)}", flush=True)
+
+
+def _watchdog() -> None:
+    failures = [0] * len(SERVERS)
+    while True:
+        time.sleep(30)
+        if SLEEPING.is_set():
+            failures = [0] * len(SERVERS)
+            continue
+        for i, url in enumerate(SERVERS):
+            failures[i] = 0 if _healthy(url) else failures[i] + 1
+            if failures[i] >= 3:
+                try:
+                    _restart_server(i)
+                except Exception as exc:  # keep watching; next round retries
+                    print(f"[watchdog] restart failed: {exc}", flush=True)
+                failures[i] = 0
+
+
+def start_watchdog() -> None:
+    threading.Thread(target=_watchdog, daemon=True).start()
+
+
 def _post(url: str, path: str, **kw) -> requests.Response:
     r = requests.post(url + path, timeout=600, **kw)
     r.raise_for_status()
@@ -53,6 +108,7 @@ def _post(url: str, path: str, **kw) -> requests.Response:
 
 
 def servers_sleep() -> None:
+    SLEEPING.set()
     for s in SERVERS:
         _post(s, "/sleep", params={"level": "1"})
     time.sleep(5)
@@ -64,9 +120,12 @@ def servers_wake() -> None:
     for s in SERVERS:
         while requests.get(s + "/is_sleeping", timeout=30).json().get("is_sleeping"):
             time.sleep(2)
+    SLEEPING.clear()
 
 
 def load_adapter(name: str, path: Path, previous: str | None) -> None:
+    LOADED[name] = path
+    LOADED.pop(previous or "", None)
     for s in SERVERS:
         _post(s, "/v1/load_lora_adapter", json={"lora_name": name, "lora_path": str(path)})
         if previous:
@@ -79,6 +138,7 @@ def load_adapter(name: str, path: Path, previous: str | None) -> None:
 def ensure_adapter_loaded(name: str | None, path: Path | None) -> None:
     if not name:
         return
+    LOADED[name] = path
     for s in SERVERS:
         models = [m["id"] for m in requests.get(s + "/v1/models", timeout=30).json()["data"]]
         if name not in models:
@@ -87,7 +147,10 @@ def ensure_adapter_loaded(name: str | None, path: Path | None) -> None:
 
 # ---------------------------------------------------------------- evaluation
 def rollout_cfg(model: str) -> RolloutConfig:
-    return RolloutConfig(model=model, servers=[s + "/v1" for s in SERVERS])
+    cfg = RolloutConfig(model=model, servers=[s + "/v1" for s in SERVERS])
+    if os.environ.get("ROLLOUT_CONCURRENCY"):
+        cfg.concurrent_per_server = int(os.environ["ROLLOUT_CONCURRENCY"])
+    return cfg
 
 
 def evaluate(tag: str, model: str, games: list[str], passes: int, reward: RewardConfig) -> dict:
@@ -120,10 +183,16 @@ def train_adapter(packs_path: Path, out: Path, init: Path | None, cfg: LoopConfi
         subprocess.run(cmd, cwd=REPO, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
 
 
-def train_loop(cfg: LoopConfig) -> None:
+def train_loop(cfg: LoopConfig, init_adapter: str = "") -> None:
     split = load_split()
     state_path = CKPT_ROOT / "state.json"
-    state = json.loads(state_path.read_text()) if state_path.exists() else {"iteration": 0, "adapter": None, "name": None}
+    if state_path.exists():
+        state = json.loads(state_path.read_text())
+    elif init_adapter:
+        # Start RL from an existing LoRA (e.g. the Terse-Coder adapter).
+        state = {"iteration": 0, "adapter": init_adapter, "name": "init-" + Path(init_adapter).name}
+    else:
+        state = {"iteration": 0, "adapter": None, "name": None}
     history_path = RESULTS / "train_history.jsonl"
     RESULTS.mkdir(exist_ok=True)
 
@@ -190,17 +259,21 @@ def main() -> None:
     ap.add_argument("--adapter", default="")
     ap.add_argument("--tag", default="")
     ap.add_argument("--iterations", type=int, default=LoopConfig.iterations)
+    ap.add_argument("--init-adapter", default="", help="train: LoRA to start RL from")
+    ap.add_argument("--all-games", action="store_true", help="eval: every game instead of the split")
     args = ap.parse_args()
     cfg = LoopConfig(iterations=args.iterations)
+    if os.environ.get("WATCHDOG", "1") != "0":
+        start_watchdog()
     if args.cmd == "baseline":
         print(json.dumps(evaluate("baseline", BASE_MODEL, all_games(), cfg.eval_passes, cfg.reward)["overall"], indent=1))
     elif args.cmd == "train":
-        train_loop(cfg)
+        train_loop(cfg, args.init_adapter)
     else:
-        split = load_split()
+        games = all_games() if args.all_games else sum(load_split().values(), [])
         name = "eval-" + Path(args.adapter).name
         ensure_adapter_loaded(name, Path(args.adapter))
-        evaluate(args.tag or Path(args.adapter).name, name, split["train"] + split["heldout"], cfg.eval_passes, cfg.reward)
+        evaluate(args.tag or Path(args.adapter).name, name, games, cfg.eval_passes, cfg.reward)
 
 
 if __name__ == "__main__":

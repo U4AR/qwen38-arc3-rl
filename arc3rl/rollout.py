@@ -35,7 +35,7 @@ class RolloutConfig:
     minutes_per_game: float = 120.0  # safety cap only; the token budget is the real limit
     max_actions: int | None = 400
     max_generated_tokens: int = 120_000  # per episode, load-independent
-    concurrent_per_server: int = 32
+    concurrent_per_server: int = 12  # more thrashes the KV cache (hybrid-attention state is large)
     video_tool: bool = True
     temperature: float = 0.6
     max_output_tokens: int = 12288
