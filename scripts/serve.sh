@@ -32,4 +32,5 @@ exec "$SERVE_VENV/bin/vllm" serve "$MODEL_PATH" \
   --enable-lora --max-lora-rank "${MAX_LORA_RANK:-32}" --max-loras 1 \
   --enable-sleep-mode \
   --limit-mm-per-prompt '{"image": 48, "video": 0}' \
+  --mm-processor-cache-gb 0 \
   "${SPEC_ARGS[@]}"

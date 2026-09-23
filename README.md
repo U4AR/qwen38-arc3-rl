@@ -39,6 +39,7 @@ Stability notes:
 - 12 concurrent episodes per server: hybrid-attention state is large, and more thrashes the KV cache.
 - `--gpu-memory-utilization 0.90`: 0.92 and above OOM at runtime.
 - A watchdog in `loop.py` restarts a dead server and reloads its adapters.
+- `--mm-processor-cache-gb 0`: with sleep/wake, the API server's image cache went out of sync with the engine (`Expected a cached item for mm_hash`), killing the engine.
 - vLLM `prompt_logprobs` is unreliable on this model with prefix caching, so every check uses sampled-token logprobs.
 
 Verified: HF-side logprobs match vLLM sampling logprobs (mean ratio ≈ 1.00), and a trained adapter shifts vLLM and HF logprobs identically (Pearson r = 0.96 per token).
