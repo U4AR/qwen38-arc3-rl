@@ -5,10 +5,14 @@ appended to ``<artifacts>/<run_stem>_rl.jsonl.gz`` with the exact prompt token
 ids the server saw, the sampled completion token ids and their logprobs, and
 the game level that was being played when the request was issued. The trainer
 uses the level tag to credit each request to the level it was working on.
+
+Images (a board image on every turn) are stored once per episode in
+``<run_stem>_images.jsonl.gz`` and referenced from records by sha1.
 """
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import os
 import threading
@@ -40,6 +44,8 @@ def _image_urls(messages: list[dict[str, Any]]) -> list[str]:
 class RLTrajectoryLogger:
     def __init__(self, path: Path) -> None:
         self.path = path
+        self.images_path = path.with_name(path.name.replace("_rl.jsonl.gz", "_images.jsonl.gz"))
+        self._saved_images: set[str] = set()
         self._index = 0
         self._lock = threading.Lock()
 
@@ -73,9 +79,23 @@ class RLTrajectoryLogger:
             "prompt_token_ids": result.prompt_token_ids,
             "token_ids": result.token_ids,
             "logprobs": result.logprobs,
-            "images": _image_urls(messages or []),
         }
+        record["video_replays"] = sum(
+            1
+            for m in messages or []
+            if isinstance(m.get("content"), list)
+            and any(isinstance(p, dict) and p.get("text") == "Requested video replay:" for p in m["content"])
+        )
+        urls = _image_urls(messages or [])
+        hashes = [hashlib.sha1(u.encode()).hexdigest() for u in urls]
+        record["images"] = hashes
         with self._lock:
+            new = [(h, u) for h, u in zip(hashes, urls) if h not in self._saved_images]
+            if new:
+                with gzip.open(self.images_path, "at", encoding="utf-8") as f:
+                    for h, u in new:
+                        f.write(json.dumps({"h": h, "url": u}) + "\n")
+                        self._saved_images.add(h)
             self._index += 1
             with gzip.open(self.path, "at", encoding="utf-8") as f:
                 f.write(json.dumps(record, separators=(",", ":")))

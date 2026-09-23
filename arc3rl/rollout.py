@@ -34,11 +34,12 @@ class RolloutConfig:
     servers: list[str]  # base urls, e.g. http://127.0.0.1:1234/v1
     minutes_per_game: float = 120.0  # safety cap only; the token budget is the real limit
     max_actions: int | None = 400
-    max_generated_tokens: int = 60_000  # per episode, load-independent (upstream Duck used ~55-67k per game)
+    max_generated_tokens: int = 150_000  # per episode, load-independent (Kaggle Duck: 132 min/game)
     concurrent_per_server: int = 12  # more thrashes the KV cache (hybrid-attention state is large)
     video_tool: bool = True
+    grid_image_upscale: int = 16  # 64x64 board -> 1024x1024 image every turn
     temperature: float = 0.6
-    max_output_tokens: int = 12288
+    max_output_tokens: int = 0  # 0 = rest of the context window, as in the Duck
     context_window: int = 32768
 
 
@@ -61,8 +62,9 @@ def _env(cfg: RolloutConfig, base_url: str) -> dict[str, str]:
             "LOCAL_ANALYZER_YIELD_SECONDS": "60",
             "LOCAL_ANALYZER_ENABLE_THINKING": "true",
             "LOCAL_ANALYZER_API_KEY": "EMPTY",
-            # Vision is opt-in via the watch_video tool, not attached every turn.
-            "MULTIMODAL_CONTEXT": "",
+            # As in the Duck: the current board as an image on every turn.
+            "MULTIMODAL_CONTEXT": "current_grid",
+            "MULTIMODAL_UPSCALE": str(cfg.grid_image_upscale),
             "VIDEO_TOOL": "1" if cfg.video_tool else "0",
             "RL_TRAJECTORY_LOG": "1",
             "EPISODE_MAX_GENERATED_TOKENS": str(cfg.max_generated_tokens),

@@ -1,13 +1,15 @@
 """Episode parsing, reward, and level-segment advantages.
 
 Reward is assigned per *level segment*: the requests the model issued while a
-given level was on screen. A segment earns
+given level was on screen. A solved level k earns
 
-    r = w(level) * solved * (1 + alpha * max(0, 1 - tokens / token_ref))
+    r = k * (solve_bonus + min(1.15, (human_actions / agent_actions)^2) + alpha * token_eff)
 
-so solving a level dominates, and among solves, fewer generated tokens earn
-more. As in the ARC-AGI-3 score (RHAE), level k carries weight w(k) = k, so
-later levels are worth correspondingly more. Advantages are computed GRPO-style within the group of all segments of
+mirroring the ARC-AGI-3 score (RHAE): level k has weight k, and each level is
+scored by action efficiency against the human baseline, with the action count
+reset at every level (as in the game). `solve_bonus` keeps a slow solve worth
+more than no solve; `token_eff = max(0, 1 - tokens / token_ref)` rewards
+solving with fewer generated tokens. Unsolved levels earn 0. Advantages are computed GRPO-style within the group of all segments of
 the same (game, level) in one iteration -- every such segment starts from the
 same level layout, so they are directly comparable.
 """
@@ -27,8 +29,10 @@ _PASS_RE = re.compile(r"_p(\d+)\.html$")
 
 @dataclass
 class RewardConfig:
-    alpha: float = 0.5  # weight of the token-efficiency bonus relative to solving
-    token_ref: float = 40_000.0  # generated tokens at which the bonus reaches zero
+    solve_bonus: float = 0.5  # any solve beats no solve, however many actions it took
+    action_efficiency: bool = True  # min(1.15, (human/agent actions)^2), as in RHAE
+    alpha: float = 0.25  # weight of the generated-token efficiency bonus
+    token_ref: float = 60_000.0  # generated tokens at which the token bonus reaches zero
     level_weighting: bool = True  # weight level k by k, like the official RHAE score
 
 
@@ -37,6 +41,8 @@ class Segment:
     level: int
     solved: bool
     tokens: int  # generated (completion) tokens spent on this level
+    actions: int = 0  # game actions spent on this level (reset per level, as in the game)
+    human_actions: int = 0  # human baseline for this level
     records: list[dict] = field(default_factory=list)
     reward: float = 0.0
     advantage: float = 0.0
@@ -56,6 +62,8 @@ class Episode:
     generated_tokens: int = 0
     segments: dict[int, Segment] = field(default_factory=dict)
     video_calls: int = 0
+    actions_per_level: list[int] = field(default_factory=list)
+    base_actions_per_level: list[int] = field(default_factory=list)
 
 
 def iter_records(path: Path) -> Iterator[dict]:
@@ -70,6 +78,11 @@ def iter_records(path: Path) -> Iterator[dict]:
                         return  # truncated tail from a killed process
     except (EOFError, OSError):
         return
+
+
+def _load_images(rl_log: Path) -> dict[str, str]:
+    path = rl_log.with_name(rl_log.name.replace("_rl.jsonl.gz", "_images.jsonl.gz"))
+    return {r["h"]: r["url"] for r in iter_records(path)} if path.exists() else {}
 
 
 def load_episodes(experiment_dirs: list[Path], *, with_records: bool = False) -> list[Episode]:
@@ -99,19 +112,30 @@ def load_episodes(experiment_dirs: list[Path], *, with_records: bool = False) ->
                 actions=len(run.get("history") or []),
                 state=str(run.get("state")),
                 rl_log=rl_log if rl_log.exists() else None,
+                actions_per_level=list(run.get("actions_per_level") or []),
+                base_actions_per_level=list(run.get("base_actions_per_level") or []),
             )
             if ep.rl_log is not None:
+                images = _load_images(ep.rl_log) if with_records else {}
                 for rec in iter_records(ep.rl_log):
                     level = int(rec.get("level") or 1)
-                    seg = ep.segments.setdefault(
-                        level, Segment(level=level, solved=ep.levels_completed >= level, tokens=0)
-                    )
+                    seg = ep.segments.get(level)
+                    if seg is None:
+                        idx = level - 1
+                        seg = ep.segments[level] = Segment(
+                            level=level,
+                            solved=ep.levels_completed >= level,
+                            tokens=0,
+                            actions=ep.actions_per_level[idx] if idx < len(ep.actions_per_level) else 0,
+                            human_actions=ep.base_actions_per_level[idx] if idx < len(ep.base_actions_per_level) else 0,
+                        )
                     n = len(rec.get("token_ids") or [])
                     seg.tokens += n
                     ep.generated_tokens += n
-                    if rec.get("images"):
-                        ep.video_calls += 1
+                    ep.video_calls += int(rec.get("video_replays") or 0)
                     if with_records:
+                        # Resolve image hashes (older logs stored data URLs inline).
+                        rec["images"] = [images.get(x, x) for x in rec.get("images") or []]
                         seg.records.append(rec)
             episodes.append(ep)
     return episodes
@@ -121,7 +145,12 @@ def segment_reward(seg: Segment, cfg: RewardConfig) -> float:
     if not seg.solved:
         return 0.0
     weight = float(seg.level) if cfg.level_weighting else 1.0
-    return weight * (1.0 + cfg.alpha * max(0.0, 1.0 - seg.tokens / cfg.token_ref))
+    token_eff = max(0.0, 1.0 - seg.tokens / cfg.token_ref)
+    if cfg.action_efficiency and seg.actions > 0 and seg.human_actions > 0:
+        action_eff = min(1.15, (seg.human_actions / seg.actions) ** 2)
+    else:
+        action_eff = 1.0 if not cfg.action_efficiency else 0.0
+    return weight * (cfg.solve_bonus + action_eff + cfg.alpha * token_eff)
 
 
 def assign_advantages(episodes: list[Episode], cfg: RewardConfig) -> dict[tuple[str, int], list[Segment]]:

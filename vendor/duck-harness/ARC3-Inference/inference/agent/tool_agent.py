@@ -1,8 +1,10 @@
 """Direct OpenAI-compatible tool-calling analyzer for ARC puzzle runs."""
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import struct
 import os
 import re
 import time
@@ -472,9 +474,21 @@ def _format_action_span(start_action_num: int | None, end_action_num: int | None
     return f"{start_action_num}-{end_action_num}"
 
 
-_DATA_URL_RE = re.compile(r"data:image/[a-zA-Z]+;base64,[A-Za-z0-9+/=]+")
-# Rough vision-token cost of one attached image; base64 length says nothing about it.
-_IMAGE_TOKEN_ESTIMATE = 1500
+_DATA_URL_RE = re.compile(r"data:image/[a-zA-Z]+;base64,([A-Za-z0-9+/=]+)")
+# Qwen3.5/3.8 vision: 16px patches merged 2x2 -> one token per 32x32 pixels.
+_VISION_PIXELS_PER_TOKEN_EDGE = 32
+_IMAGE_TOKEN_FALLBACK = 1500
+
+
+def _image_tokens(b64: str) -> int:
+    """Vision tokens for one attached PNG, from its IHDR size (base64 length says nothing about it)."""
+    try:
+        header = base64.b64decode(b64[:48])
+        width, height = struct.unpack(">II", header[16:24])
+    except Exception:
+        return _IMAGE_TOKEN_FALLBACK
+    edge = _VISION_PIXELS_PER_TOKEN_EDGE
+    return -(-width // edge) * -(-height // edge) + 2
 
 
 def _estimate_tokens(value: Any) -> int:
@@ -482,8 +496,9 @@ def _estimate_tokens(value: Any) -> int:
         rendered = json.dumps(value, ensure_ascii=True, sort_keys=True, default=str)
     except TypeError:
         rendered = str(value)
-    rendered = _DATA_URL_RE.sub("x" * (3 * _IMAGE_TOKEN_ESTIMATE), rendered)
-    return max(1, (len(rendered) + 2) // 3)
+    image_tokens = sum(_image_tokens(m.group(1)) for m in _DATA_URL_RE.finditer(rendered))
+    rendered = _DATA_URL_RE.sub("", rendered)
+    return max(1, (len(rendered) + 2) // 3 + image_tokens)
 
 
 def _host_accessible_base_url(base_url: str) -> str:
