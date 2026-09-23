@@ -61,3 +61,9 @@ Storage: weights, venvs and raw rollouts live on NVMe (`/cache/nvme0`, disposabl
 ## Results
 
 See [`results/REPORT.md`](results/REPORT.md).
+
+## Attribution
+
+- `vendor/duck-harness/` is from [Tufalabs/duck-harness](https://github.com/Tufalabs/duck-harness) at commit `7652836`. Upstream declares the MIT License in `ARC3-Inference/pyproject.toml`. Local modifications are listed above and visible in this repo's git history.
+- The `adapters` branch contains [Shockem/Qwen3.8-27b-Terse-Coder-LoRA](https://huggingface.co/Shockem/Qwen3.8-27b-Terse-Coder-LoRA) (Apache-2.0), with keys renamed. The rename is its only change.
+- [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) weights and the ARC-AGI-3 game files are **not** redistributed here.
