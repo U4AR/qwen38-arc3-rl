@@ -2,7 +2,7 @@
 
 This repo is the complete code and state of the run. Large artifacts are not in git:
 - **Base model weights** come from Hugging Face.
-- **LoRA adapters** are GitHub release assets.
+- **LoRA adapters** are on the `adapters` branch (Git LFS).
 - **Rollout trajectories** (tens of GB) are regenerable and not backed up.
 
 ## 1. Environment
@@ -33,13 +33,14 @@ CAUSAL_CONV1D_FORCE_BUILD=FALSE TORCH_CUDA_ARCH_LIST=9.0 VIRTUAL_ENV=$TRAIN_VENV
 ```bash
 hf download Qwen/Qwen3.8-27B            # BF16, ~52 GB -> set MODEL_PATH to the snapshot dir
 # ARC-AGI-3 offline environment files (25 public games, layout <game>/<version>/{<game>.py,metadata.json}) -> ENVS_DIR
-mkdir -p $CKPT_ROOT/terse-hf
-gh release download state-20260923 -R U4AR/qwen38-arc3-rl -p 'terse-hf*' -D /tmp/rel
+git clone --branch adapters --single-branch https://github.com/U4AR/qwen38-arc3-rl.git adapters \
+  && (cd adapters && git lfs pull && sha256sum -c SHA256SUMS)
+mkdir -p $CKPT_ROOT && cp -r adapters/terse-hf $CKPT_ROOT/
 ```
 
-- **`terse-hf`** is `Shockem/Qwen3.8-27b-Terse-Coder-LoRA` with keys renamed to HF module paths (`model.language_model.layers.*`). It is the RL starting policy. Unpack its release asset into `$CKPT_ROOT/terse-hf/` (files `adapter_config.json`, `adapter_model.safetensors`).
+- **`terse-hf`** is `Shockem/Qwen3.8-27b-Terse-Coder-LoRA` with keys renamed to HF module paths (`model.language_model.layers.*`). It is the RL starting policy.
 - **`run1-noimage-iter001`** is the only trained adapter so far. It came from run 1 (no per-turn board images, 60k budget, flat reward), which is archived and superseded.
-- Checksums are in `results/snapshots/*/adapter_sha256.txt`.
+- Checksums are in `SHA256SUMS` on the `adapters` branch and in `results/snapshots/*/adapter_sha256.txt`.
 
 ## 3. Resume training
 
