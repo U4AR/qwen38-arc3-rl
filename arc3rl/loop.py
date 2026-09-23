@@ -44,6 +44,7 @@ class LoopConfig:
     train_token_budget: int = 6_000_000  # total packed-sequence tokens trained per iteration
     lr: float = 2e-5
     packs_per_step: int = 4
+    max_train_len: int = 49152  # longest packed sequence that fits (88.9 GB peak measured at 48k)
     reward: RewardConfig = field(default_factory=RewardConfig)
 
 
@@ -176,7 +177,7 @@ def train_adapter(packs_path: Path, out: Path, init: Path | None, cfg: LoopConfi
     cmd = [
         str(Path(os.environ["TRAIN_VENV"]) / "bin/torchrun"), "--nproc_per_node", "2", "--master-port", "29512",
         "-m", "arc3rl.train", "--packs", str(packs_path), "--out", str(out),
-        "--lr", str(cfg.lr), "--packs-per-step", str(cfg.packs_per_step),
+        "--lr", str(cfg.lr), "--packs-per-step", str(cfg.packs_per_step), "--max-len", str(cfg.max_train_len),
     ]
     if init is not None:
         cmd += ["--init", str(init)]
@@ -215,7 +216,9 @@ def train_loop(cfg: LoopConfig, init_adapter: str = "") -> None:
         t_roll = time.time() - t0
         eps = load_episodes(sorted(it_dir.glob("server*")), with_records=True)
         groups = assign_advantages(eps, cfg.reward)
-        packs = select_packs(build_packs(eps), cfg.train_token_budget, seed=it)
+        all_packs = build_packs(eps)
+        fitting = [p for p in all_packs if len(p.input_ids) <= cfg.max_train_len]
+        packs = select_packs(fitting, cfg.train_token_budget, seed=it)
         roll_summary = summarize(eps, cfg.reward)
         packs_path = it_dir / "packs.jsonl"
         with open(packs_path, "w") as f:
@@ -245,6 +248,7 @@ def train_loop(cfg: LoopConfig, init_adapter: str = "") -> None:
             "rollout_per_game": roll_summary["per_game"],
             "groups_with_signal": n_signal,
             "packs_trained": len(packs),
+            "packs_too_long": len(all_packs) - len(fitting),
             "packed_tokens": sum(len(p.input_ids) for p in packs),
             "train_stats": json.loads((out / "train_stats.json").read_text()) if packs else [],
             "seconds": {"rollout": t_roll, "train": t_train},

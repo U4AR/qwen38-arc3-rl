@@ -477,18 +477,17 @@ def _format_action_span(start_action_num: int | None, end_action_num: int | None
 _DATA_URL_RE = re.compile(r"data:image/[a-zA-Z]+;base64,([A-Za-z0-9+/=]+)")
 # Qwen3.5/3.8 vision: 16px patches merged 2x2 -> one token per 32x32 pixels.
 _VISION_PIXELS_PER_TOKEN_EDGE = 32
-_IMAGE_TOKEN_FALLBACK = 1500
+# Board images are estimated exactly as upstream (base64 length / 3). Only the
+# large watch_video filmstrips (an addition to the Duck) are counted in vision
+# tokens: at ~100 KB of base64 the upstream rule would evict the whole history.
+_EXACT_ESTIMATE_MIN_EDGE = 512
 
 
-def _image_tokens(b64: str) -> int:
-    """Vision tokens for one attached PNG, from its IHDR size (base64 length says nothing about it)."""
+def _png_size(b64: str) -> tuple[int, int] | None:
     try:
-        header = base64.b64decode(b64[:48])
-        width, height = struct.unpack(">II", header[16:24])
+        return struct.unpack(">II", base64.b64decode(b64[:48])[16:24])
     except Exception:
-        return _IMAGE_TOKEN_FALLBACK
-    edge = _VISION_PIXELS_PER_TOKEN_EDGE
-    return -(-width // edge) * -(-height // edge) + 2
+        return None
 
 
 def _estimate_tokens(value: Any) -> int:
@@ -496,9 +495,19 @@ def _estimate_tokens(value: Any) -> int:
         rendered = json.dumps(value, ensure_ascii=True, sort_keys=True, default=str)
     except TypeError:
         rendered = str(value)
-    image_tokens = sum(_image_tokens(m.group(1)) for m in _DATA_URL_RE.finditer(rendered))
-    rendered = _DATA_URL_RE.sub("", rendered)
-    return max(1, (len(rendered) + 2) // 3 + image_tokens)
+    extra = 0
+
+    def _exact_for_large(match: re.Match) -> str:
+        nonlocal extra
+        size = _png_size(match.group(1))
+        if size is None or max(size) < _EXACT_ESTIMATE_MIN_EDGE:
+            return match.group(0)
+        edge = _VISION_PIXELS_PER_TOKEN_EDGE
+        extra += -(-size[0] // edge) * -(-size[1] // edge) + 2
+        return ""
+
+    rendered = _DATA_URL_RE.sub(_exact_for_large, rendered)
+    return max(1, (len(rendered) + 2) // 3 + extra)
 
 
 def _host_accessible_base_url(base_url: str) -> str:
@@ -911,19 +920,11 @@ def _normalize_message_content(content: Any) -> str:
     return ""
 
 
-def _verbatim_model_text(content: Any) -> str:
-    """Model output with only think tags removed, so replayed history re-tokenizes
-    to exactly what was sampled (keeps vLLM prefix caching and RL packing exact)."""
-    if not isinstance(content, str):
-        return _normalize_message_content(content)
-    return _THINK_TAG_RE.sub("", content).strip()
-
-
 def _extract_reasoning_text(message: dict[str, Any]) -> str:
     reasoning = message.get("reasoning")
     if reasoning in (None, ""):
         reasoning = message.get("reasoning_content", "")
-    return _verbatim_model_text(reasoning)
+    return _normalize_message_content(reasoning)
 
 
 def _is_context_length_error(exc: BaseException) -> bool:
@@ -1922,7 +1923,7 @@ class ToolAgent:
                     messages = trimmed_messages
                     continue
                 raw_reasoning = _extract_reasoning_text(result.message)
-                raw_content = _verbatim_model_text(result.message.get("content", ""))
+                raw_content = _normalize_message_content(result.message.get("content", ""))
                 tool_calls = json.loads(json.dumps(result.message.get("tool_calls") or []))
                 tool_call_markup_in_text = _contains_tool_call_markup(raw_reasoning, raw_content)
                 recovered_tool_calls_from_markup = False

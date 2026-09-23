@@ -37,10 +37,10 @@ class RolloutConfig:
     max_generated_tokens: int = 150_000  # per episode, load-independent (Kaggle Duck: 132 min/game)
     concurrent_per_server: int = 12  # more thrashes the KV cache (hybrid-attention state is large)
     video_tool: bool = True
-    grid_image_upscale: int = 16  # 64x64 board -> 1024x1024 image every turn
+    grid_image_upscale: int = 4  # 64x64 board -> 256x256 image every turn (Duck configs/inference.json)
     temperature: float = 0.6
     max_output_tokens: int = 0  # 0 = rest of the context window, as in the Duck
-    context_window: int = 32768
+    context_window: int = 32768  # Duck analyzer history budget; vLLM window is 65536 (Duck Kaggle default)
 
 
 def _env(cfg: RolloutConfig, base_url: str) -> dict[str, str]:

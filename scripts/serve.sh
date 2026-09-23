@@ -17,15 +17,17 @@ SPEC_ARGS=()
 if [ "$SPEC" != "0" ]; then
   SPEC_ARGS=(--speculative-config "{\"method\":\"mtp\",\"num_speculative_tokens\":$SPEC}")
 fi
+"$SERVE_VENV/bin/python" "$(dirname "$0")/patch_vllm.py"
 exec "$SERVE_VENV/bin/vllm" serve "$MODEL_PATH" \
   --served-model-name "$SERVED_NAME" \
   --host 127.0.0.1 --port "$PORT" \
   --dtype bfloat16 \
-  --max-model-len "${MAX_MODEL_LEN:-32768}" \
+  --max-model-len "${MAX_MODEL_LEN:-65536}" \
   --gpu-memory-utilization "${GPU_MEM_UTIL:-0.90}" \
   --max-num-seqs "${MAX_NUM_SEQS:-32}" \
   --max-num-batched-tokens "${MAX_BATCHED_TOKENS:-8192}" \
   --enable-prefix-caching \
+  --generation-config vllm \
   --enable-auto-tool-choice --tool-call-parser qwen3_coder \
   --reasoning-parser qwen3 \
   --default-chat-template-kwargs '{"preserve_thinking": true}' \
