@@ -32,6 +32,7 @@ RESULTS = REPO / "results"
 SERVERS = ["http://127.0.0.1:1234", "http://127.0.0.1:1235"]
 BASE_MODEL = os.environ.get("SERVED_NAME", "Qwen3.8-27B")
 SPLIT_FILE = REPO / "configs/split.json"
+OVERRIDES_FILE = REPO / "configs/loop_overrides.json"  # re-read every iteration: live tuning without restarts
 
 
 @dataclass
@@ -197,6 +198,11 @@ def train_loop(cfg: LoopConfig, init_adapter: str = "") -> None:
     RESULTS.mkdir(exist_ok=True)
 
     while state["iteration"] < cfg.iterations:
+        if OVERRIDES_FILE.exists():
+            for key, value in json.loads(OVERRIDES_FILE.read_text()).items():
+                if hasattr(cfg, key) and getattr(cfg, key) != value:
+                    print(f"[overrides] {key}: {getattr(cfg, key)} -> {value}", flush=True)
+                    setattr(cfg, key, value)
         it = state["iteration"] + 1
         model = state["name"] or BASE_MODEL
         ensure_adapter_loaded(state["name"], Path(state["adapter"]) if state["adapter"] else None)
@@ -242,6 +248,7 @@ def train_loop(cfg: LoopConfig, init_adapter: str = "") -> None:
             "packed_tokens": sum(len(p.input_ids) for p in packs),
             "train_stats": json.loads((out / "train_stats.json").read_text()) if packs else [],
             "seconds": {"rollout": t_roll, "train": t_train},
+            "lr": cfg.lr,
         }
         with open(history_path, "a") as f:
             f.write(json.dumps(rec) + "\n")
