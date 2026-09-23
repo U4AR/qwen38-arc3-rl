@@ -249,6 +249,7 @@ def train_loop(cfg: LoopConfig, init_adapter: str = "") -> None:
             "train_stats": json.loads((out / "train_stats.json").read_text()) if packs else [],
             "seconds": {"rollout": t_roll, "train": t_train},
             "lr": cfg.lr,
+            "reward_cfg": asdict(cfg.reward),
         }
         with open(history_path, "a") as f:
             f.write(json.dumps(rec) + "\n")

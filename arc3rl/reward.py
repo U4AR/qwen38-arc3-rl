@@ -3,10 +3,11 @@
 Reward is assigned per *level segment*: the requests the model issued while a
 given level was on screen. A segment earns
 
-    r = solved * (1 + alpha * max(0, 1 - tokens / token_ref))
+    r = w(level) * solved * (1 + alpha * max(0, 1 - tokens / token_ref))
 
 so solving a level dominates, and among solves, fewer generated tokens earn
-more. Advantages are computed GRPO-style within the group of all segments of
+more. As in the ARC-AGI-3 score (RHAE), level k carries weight w(k) = k, so
+later levels are worth correspondingly more. Advantages are computed GRPO-style within the group of all segments of
 the same (game, level) in one iteration -- every such segment starts from the
 same level layout, so they are directly comparable.
 """
@@ -28,6 +29,7 @@ _PASS_RE = re.compile(r"_p(\d+)\.html$")
 class RewardConfig:
     alpha: float = 0.5  # weight of the token-efficiency bonus relative to solving
     token_ref: float = 40_000.0  # generated tokens at which the bonus reaches zero
+    level_weighting: bool = True  # weight level k by k, like the official RHAE score
 
 
 @dataclass
@@ -118,7 +120,8 @@ def load_episodes(experiment_dirs: list[Path], *, with_records: bool = False) ->
 def segment_reward(seg: Segment, cfg: RewardConfig) -> float:
     if not seg.solved:
         return 0.0
-    return 1.0 + cfg.alpha * max(0.0, 1.0 - seg.tokens / cfg.token_ref)
+    weight = float(seg.level) if cfg.level_weighting else 1.0
+    return weight * (1.0 + cfg.alpha * max(0.0, 1.0 - seg.tokens / cfg.token_ref))
 
 
 def assign_advantages(episodes: list[Episode], cfg: RewardConfig) -> dict[tuple[str, int], list[Segment]]:
