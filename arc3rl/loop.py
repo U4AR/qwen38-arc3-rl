@@ -45,6 +45,8 @@ class LoopConfig:
     lr: float = 2e-5
     packs_per_step: int = 4
     max_train_len: int = 49152  # longest packed sequence that fits (88.9 GB peak measured at 48k)
+    kl_stop: float = 0.05  # end an iteration's update once a step's approx KL exceeds this
+    collapse_ratio: float = 0.5  # rollouts below this fraction of the best levels/episode -> roll back
     reward: RewardConfig = field(default_factory=RewardConfig)
 
 
@@ -178,6 +180,7 @@ def train_adapter(packs_path: Path, out: Path, init: Path | None, cfg: LoopConfi
         str(Path(os.environ["TRAIN_VENV"]) / "bin/torchrun"), "--nproc_per_node", "2", "--master-port", "29512",
         "-m", "arc3rl.train", "--packs", str(packs_path), "--out", str(out),
         "--lr", str(cfg.lr), "--packs-per-step", str(cfg.packs_per_step), "--max-len", str(cfg.max_train_len),
+        "--kl-stop", str(cfg.kl_stop),
     ]
     if init is not None:
         cmd += ["--init", str(init)]
@@ -227,6 +230,27 @@ def train_loop(cfg: LoopConfig, init_adapter: str = "") -> None:
         n_signal = sum(1 for segs in groups.values() if len(segs) > 1 and any(abs(s.advantage) > 1e-6 for s in segs))
         del eps
 
+        # Collapse guard: if this policy is far worse than the best one so far,
+        # roll back to the best adapter, halve the learning rate, and do not
+        # train on the bad policy's data.
+        levels = roll_summary["overall"]["levels_per_episode"]
+        best = state.get("best")
+        rolled_back = None
+        if best and levels < cfg.collapse_ratio * best["levels_per_episode"]:
+            rolled_back = {"from": state["name"], "to": best["name"], "levels": levels, "best_levels": best["levels_per_episode"]}
+            print(f"[collapse guard] {state['name']} levels/ep {levels:.2f} < {cfg.collapse_ratio} x best "
+                  f"{best['levels_per_episode']:.2f} ({best['name']}): rolling back, lr {cfg.lr} -> {cfg.lr / 2}", flush=True)
+            cfg.lr /= 2
+            if OVERRIDES_FILE.exists():
+                overrides = json.loads(OVERRIDES_FILE.read_text())
+                overrides["lr"] = cfg.lr
+                OVERRIDES_FILE.write_text(json.dumps(overrides))
+            load_adapter(best["name"], Path(best["adapter"]), state["name"])
+            state.update({"adapter": best["adapter"], "name": best["name"]})
+            packs = []
+        elif not best or levels >= best["levels_per_episode"]:
+            state["best"] = {"adapter": state["adapter"], "name": state["name"] or BASE_MODEL, "levels_per_episode": levels}
+
         # 2. LoRA update with both GPUs while vLLM sleeps
         out = CKPT_ROOT / f"iter{it:03d}"
         t1 = time.time()
@@ -254,6 +278,7 @@ def train_loop(cfg: LoopConfig, init_adapter: str = "") -> None:
             "seconds": {"rollout": t_roll, "train": t_train},
             "lr": cfg.lr,
             "reward_cfg": asdict(cfg.reward),
+            "rolled_back": rolled_back,
         }
         with open(history_path, "a") as f:
             f.write(json.dumps(rec) + "\n")

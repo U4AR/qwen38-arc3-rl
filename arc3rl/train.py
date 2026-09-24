@@ -47,6 +47,8 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--eps-high", type=float, default=0.28)
     ap.add_argument("--max-grad-norm", type=float, default=1.0)
     ap.add_argument("--max-len", type=int, default=32768)
+    ap.add_argument("--kl-stop", type=float, default=0.05,
+                    help="end the update once a step's approx KL to the sampling policy exceeds this")
     return ap.parse_args()
 
 
@@ -189,15 +191,20 @@ def main() -> None:
             dist.all_reduce(g)
         for p, g in zip(params, flat):
             p.grad = g
-        gnorm = float(torch.nn.utils.clip_grad_norm_(params, args.max_grad_norm))
-        opt.step()
-        opt.zero_grad(set_to_none=True)
-
         summed = torch.tensor(
             [acc["loss"], acc["tokens"], acc["clipped"], acc["ratio_sum"], acc["kl_sum"], acc["skipped"]], device=device
         )
         dist.all_reduce(summed)
         loss_v, tok, clip_n, ratio_s, kl_s, skipped = summed.tolist()
+        # KL early stop (same decision on every rank: stats are all-reduced).
+        early_stop = kl_s / max(1, tok) > args.kl_stop
+        if early_stop:
+            opt.zero_grad(set_to_none=True)
+            gnorm = 0.0
+        else:
+            gnorm = float(torch.nn.utils.clip_grad_norm_(params, args.max_grad_norm))
+            opt.step()
+            opt.zero_grad(set_to_none=True)
         rec = {
             "step": step,
             "loss": loss_v,
@@ -209,10 +216,15 @@ def main() -> None:
             "skipped": skipped,
             "elapsed_s": time.time() - t0,
             "max_mem_gb": torch.cuda.max_memory_allocated() / 1e9,
+            "early_stop": early_stop,
         }
         stats_all.append(rec)
         if rank == 0:
             print(json.dumps(rec), flush=True)
+        if early_stop:
+            if rank == 0:
+                print(f"KL early stop at step {step}: approx_kl {rec['approx_kl']:.4f} > {args.kl_stop}", flush=True)
+            break
 
     if rank == 0:
         out = Path(args.out)

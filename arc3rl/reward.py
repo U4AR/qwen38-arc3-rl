@@ -21,7 +21,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from statistics import mean
+from statistics import mean, pstdev
 from typing import Iterator
 
 _PASS_RE = re.compile(r"_p(\d+)\.html$")
@@ -33,6 +33,7 @@ class RewardConfig:
     action_efficiency: bool = True  # min(1.15, (human/agent actions)^2), as in RHAE
     alpha: float = 0.25  # weight of the generated-token efficiency bonus
     token_ref: float = 60_000.0  # generated tokens at which the token bonus reaches zero
+    normalize_advantages: bool = True  # scale advantages to unit std per iteration (keeps step size stable)
     level_weighting: bool = True  # weight level k by k, like the official RHAE score
 
 
@@ -164,6 +165,16 @@ def assign_advantages(episodes: list[Episode], cfg: RewardConfig) -> dict[tuple[
         for s in segs:
             # Dr.GRPO-style: centre but do not divide by the group std.
             s.advantage = s.reward - baseline if len(segs) > 1 else 0.0
+    if cfg.normalize_advantages:
+        # Level weights make raw advantages several times larger than a flat
+        # reward; unnormalized they inflated the effective step size and the
+        # policy collapsed (run 3, iteration 2). Normalize across the iteration.
+        nonzero = [s.advantage for segs in groups.values() for s in segs if abs(s.advantage) > 1e-9]
+        if len(nonzero) > 1:
+            scale = pstdev(nonzero) or 1.0
+            for segs in groups.values():
+                for s in segs:
+                    s.advantage /= scale
     return groups
 
 
